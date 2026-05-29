@@ -1,0 +1,1629 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArduRoomba — BLE Controller</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* ─── Reset & base ───────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0f0f0f;
+  --bg2:       #181818;
+  --bg3:       #222222;
+  --line:      #2e2e2e;
+  --line2:     #3a3a3a;
+  --text:      #e8e8e0;
+  --muted:     #6a6a60;
+  --accent:    #c8f560;    /* lime */
+  --accent2:   #f5a623;    /* amber */
+  --danger:    #f55060;
+  --info:      #60bff5;
+  --mono:      'Space Mono', monospace;
+  --sans:      'DM Sans', sans-serif;
+  --radius:    4px;
+  --radius-lg: 8px;
+}
+
+html { background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  padding: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ─── Scanline overlay ───────────────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,.08) 2px,
+    rgba(0,0,0,.08) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ─── Layout ─────────────────────────────────────────────────────── */
+.shell {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.header-left { display: flex; align-items: center; gap: 14px; }
+
+.logo-mark {
+  width: 36px; height: 36px;
+  border: 1.5px solid var(--accent);
+  border-radius: var(--radius);
+  display: flex; align-items: center; justify-content: center;
+}
+.logo-mark svg { width: 20px; height: 20px; }
+
+.logo-text {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--text);
+}
+.logo-sub {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  margin-top: 1px;
+}
+
+/* ─── Connection bar ─────────────────────────────────────────────── */
+.conn-bar {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.conn-indicator {
+  position: relative;
+  width: 10px; height: 10px;
+}
+.conn-indicator span {
+  display: block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background .3s;
+}
+.conn-indicator.on span { background: var(--accent); }
+.conn-indicator.on::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  opacity: .4;
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: .4; }
+  50%       { transform: scale(1.5); opacity: 0; }
+}
+
+.conn-info { flex: 1; }
+.conn-name { font-size: 14px; font-weight: 500; color: var(--text); }
+.conn-addr { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+
+.btn-connect {
+  padding: 9px 20px;
+  background: transparent;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  transition: border-color .15s, color .15s;
+}
+.btn-connect:hover { border-color: var(--accent); color: var(--accent); }
+.btn-connect.connected { border-color: var(--danger); color: var(--danger); }
+.btn-connect svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ─── Notice banner ──────────────────────────────────────────────── */
+.notice {
+  display: none;
+  padding: 10px 14px;
+  background: rgba(245,166,35,.08);
+  border: 1px solid rgba(245,166,35,.3);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--accent2);
+  font-family: var(--mono);
+}
+
+/* ─── Metric row ─────────────────────────────────────────────────── */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.metric {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.metric-label {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 6px;
+}
+.metric-val {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  transition: color .3s;
+}
+.metric-val.warn  { color: var(--accent2); }
+.metric-val.crit  { color: var(--danger); }
+.metric-val.ok    { color: var(--accent); }
+
+/* ─── Sensor strip ───────────────────────────────────────────────── */
+.sensor-strip {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.sensor-strip .label {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.sensor {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.s-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--line2);
+  background: var(--bg3);
+  transition: background .2s, border-color .2s, box-shadow .2s;
+}
+.s-dot.active {
+  background: var(--danger);
+  border-color: var(--danger);
+  box-shadow: 0 0 6px var(--danger);
+}
+.sensor.active { color: var(--danger); }
+
+/* ─── Main grid ──────────────────────────────────────────────────── */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+/* ─── Card ───────────────────────────────────────────────────────── */
+.card {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+}
+.card-title {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* ─── D-pad ──────────────────────────────────────────────────────── */
+.dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 54px);
+  grid-template-rows: repeat(3, 54px);
+  gap: 5px;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+.dpad-empty { background: transparent; }
+
+.dir-btn, .stop-btn {
+  width: 54px; height: 54px;
+  background: var(--bg3);
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  color: var(--muted);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .1s, border-color .1s, color .1s;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.dir-btn svg, .stop-btn svg { width: 20px; height: 20px; }
+.dir-btn:hover  { border-color: var(--accent); color: var(--accent); }
+.stop-btn       { background: var(--bg3); }
+.stop-btn:hover { border-color: var(--danger); color: var(--danger); }
+.dir-btn.pressed {
+  background: rgba(200,245,96,.12);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: scale(.93);
+}
+
+.spin-row {
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+/* ─── Speed slider ───────────────────────────────────────────────── */
+.speed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.speed-row label {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--muted);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.speed-row input[type=range] {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: var(--line2);
+  border-radius: 2px;
+  outline: none;
+}
+.speed-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+}
+.speed-val {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  min-width: 58px;
+  text-align: right;
+}
+
+/* ─── Toggle buttons (motors, cleaning) ─────────────────────────── */
+.toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--muted);
+  width: 100%;
+  text-align: left;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.toggle-btn:hover { border-color: var(--line2); color: var(--text); }
+.toggle-btn.on {
+  background: rgba(200,245,96,.07);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.toggle-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+.t-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--line2);
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: background .2s, box-shadow .2s;
+}
+.on .t-dot {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.btn-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.btn-sm {
+  flex: 1;
+  padding: 8px 6px;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  transition: border-color .15s, color .15s;
+}
+.btn-sm svg { width: 14px; height: 14px; }
+.btn-sm:hover { border-color: var(--line2); color: var(--text); }
+.btn-sm.clean-btn:hover { border-color: var(--info); color: var(--info); }
+.btn-sm.spot-btn:hover  { border-color: var(--accent2); color: var(--accent2); }
+.btn-sm.dock-btn:hover  { border-color: var(--accent); color: var(--accent); }
+
+/* ─── LED panel ──────────────────────────────────────────────────── */
+.led-grid {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.led-btn {
+  flex: 1;
+  padding: 10px 4px;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 6px;
+  transition: border-color .15s;
+}
+.led-bulb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--line2);
+  transition: background .2s, box-shadow .2s;
+}
+.led-btn.on .led-bulb {
+  background: var(--accent2);
+  box-shadow: 0 0 8px var(--accent2);
+}
+.led-btn.on { border-color: rgba(245,166,35,.5); }
+.led-lbl {
+  font-size: 9px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.pl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.pl-row label {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  white-space: nowrap;
+  width: 60px;
+}
+.pl-row input[type=range] {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: var(--line2);
+  border-radius: 2px;
+  outline: none;
+}
+.pl-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  cursor: pointer;
+}
+#pl-swatch {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--line2);
+  flex-shrink: 0;
+  background: hsl(120, 75%, 45%);
+}
+
+/* ─── Song panel ─────────────────────────────────────────────────── */
+.song-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin-bottom: 14px;
+}
+.song-btn {
+  padding: 10px 6px;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--mono);
+  transition: border-color .15s, color .15s;
+}
+.song-btn svg { width: 18px; height: 18px; }
+.song-btn:hover { border-color: var(--info); color: var(--info); }
+
+.custom-song {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.field-label {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 5px;
+}
+input[type=text] {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s;
+}
+input[type=text]:focus { border-color: var(--line2); }
+
+/* ─── Sequence builder ───────────────────────────────────────────── */
+.seq-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.preset-btn {
+  padding: 8px 6px;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  transition: border-color .15s, color .15s;
+}
+.preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+textarea {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+  min-height: 60px;
+  line-height: 1.6;
+  margin-bottom: 10px;
+  transition: border-color .15s;
+}
+textarea:focus { border-color: var(--line2); }
+
+.btn-exec {
+  padding: 10px 24px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f0f0f;
+  display: flex; align-items: center; gap: 8px;
+  transition: opacity .15s, transform .1s;
+}
+.btn-exec:hover   { opacity: .88; }
+.btn-exec:active  { transform: scale(.97); }
+.btn-exec svg     { width: 15px; height: 15px; }
+
+/* ─── Mode + Safety row ──────────────────────────────────────────── */
+.bottom-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr;
+  gap: 12px;
+  align-items: stretch;
+}
+.mode-group, .safety-group, .log-group { 
+  background: var(--bg2); 
+  border: 1px solid var(--line); 
+  border-radius: var(--radius-lg); 
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+.mode-btns { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; flex: 1; }
+.mode-btn {
+  padding: 10px 14px;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  transition: border-color .15s, color .15s;
+  text-align: center;
+}
+.mode-btn:hover { border-color: var(--line2); color: var(--text); }
+.mode-btn.active { border-color: var(--info); color: var(--info); background: rgba(96,191,245,.08); }
+
+.safety-toggle {
+  margin-top: 10px;
+  width: 100%;
+  padding: 12px;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: border-color .15s, color .15s, background .15s;
+  flex: 1;
+}
+.safety-toggle svg { width: 15px; height: 15px; }
+.safety-toggle.on { border-color: var(--accent); color: var(--accent); background: rgba(200,245,96,.07); }
+
+/* ─── Log ────────────────────────────────────────────────────────── */
+#log {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  flex: 1;
+  min-height: 150px;
+  max-height: 300px;
+  overflow-y: auto;
+  line-height: 1.8;
+  padding-top: 10px;
+}
+#log .entry { display: flex; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.03); padding: 2px 0; }
+#log .entry .ts { color: var(--line2); flex-shrink: 0; font-size: 9px; }
+#log .entry .msg { color: var(--muted); }
+#log .entry.out .msg { color: var(--accent); }
+#log .entry.err .msg { color: var(--danger); }
+
+/* ─── New styles for mode selector ─── */
+.mode-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line2);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.mode-dot.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+.mode-dot:hover {
+  transform: scale(1.2);
+}
+
+
+/* ─── Motors / right column stack ───────────────────────────────── */
+.right-stack { display: flex; flex-direction: column; gap: 10px; }
+.motors-col { display: flex; flex-direction: column; gap: 7px; }
+
+/* ─── Responsive ─────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .main-grid  { grid-template-columns: 1fr; }
+  .metrics    { grid-template-columns: repeat(2, 1fr); }
+  .bottom-row { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo-mark">
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="10" cy="10" r="8" stroke="#c8f560" stroke-width="1.5"/>
+          <circle cx="10" cy="10" r="3" fill="#c8f560"/>
+          <line x1="10" y1="2"  x2="10" y2="5"  stroke="#c8f560" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="10" y1="15" x2="10" y2="18" stroke="#c8f560" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="2"  y1="10" x2="5"  y2="10" stroke="#c8f560" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="15" y1="10" x2="18" y2="10" stroke="#c8f560" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="logo-text">ArduRoomba</div>
+        <div class="logo-sub">BLE Controller — Nano + CC2540</div>
+      </div>
+    </div>
+    <div style="font-family: var(--mono); font-size: 11px; color: var(--muted);" id="ts-header">—</div>
+  </header>
+
+  <!-- BLE Notice -->
+  <div class="notice" id="ble-notice">
+    ⚠ Web Bluetooth non disponibile. Apri questo file in Chrome o Edge su desktop e assicurati che il sito sia servito via HTTPS o localhost.
+  </div>
+
+  <!-- Connection bar -->
+  <div class="conn-bar">
+    <div class="conn-indicator" id="conn-ind">
+      <span></span>
+    </div>
+    <div class="conn-info">
+      <div class="conn-name" id="conn-name">Non connesso</div>
+      <div class="conn-addr" id="conn-addr">in attesa — Bluetooth o USB Serial</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn-connect" id="btn-connect" onclick="toggleConnect()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 7l10 10M17 7l-5 5m5-5H7m10 0v10"/>
+        </svg>
+        Bluetooth
+      </button>
+      <button class="btn-connect" id="btn-connect-usb" onclick="toggleUSB()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="7" width="20" height="10" rx="2" ry="2"></rect>
+          <path d="M7 10h4M7 14h4M15 12h2"></path>
+        </svg>
+        USB Serial
+      </button>
+    </div>
+  </div>
+
+  <!-- Metrics -->
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-label">Batteria</div>
+      <div class="metric-val" id="m-bat">—</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Tensione</div>
+      <div class="metric-val" id="m-volt">—</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Corrente</div>
+      <div class="metric-val" id="m-curr">—</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Stato</div>
+      <div class="metric-val" id="m-state">—</div>
+    </div>
+  </div>
+
+  <!-- Sensor strip -->
+  <div class="sensor-strip">
+    <span class="label">Sensori</span>
+    <div class="sensor" id="sx-bumperL"><span class="s-dot" id="sd-bumperL"></span>Bumper sin.</div>
+    <div class="sensor" id="sx-bumperR"><span class="s-dot" id="sd-bumperR"></span>Bumper des.</div>
+    <div class="sensor" id="sx-wall"><span class="s-dot" id="sd-wall"></span>Parete</div>
+    <div class="sensor" id="sx-cliff"><span class="s-dot" id="sd-cliff"></span>Scarpata</div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="main-grid">
+
+    <!-- D-pad card -->
+    <div class="card">
+      <div class="card-title">
+        Movimento
+        <div class="move-mode-selector" style="margin-left: auto; display: flex; gap: 8px;">
+          <div class="mode-dot active" id="m-mode-dpad" onclick="setMoveMode('dpad')" title="D-Pad Mode"></div>
+          <div class="mode-dot" id="m-mode-joy" onclick="setMoveMode('joy')" title="Joystick Mode"></div>
+        </div>
+      </div>
+      
+      <div id="control-container">
+        <div id="dpad-view">
+          <div class="dpad">
+            <button class="dir-btn" id="btn-fwd-l" data-dir="fwd_left" aria-label="avanti sinistra">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="17" x2="7" y2="7"/><polyline points="7 17 7 7 17 7"/></svg>
+            </button>
+            <button class="dir-btn" id="btn-fwd" data-dir="forward" aria-label="avanti">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+            </button>
+            <button class="dir-btn" id="btn-fwd-r" data-dir="fwd_right" aria-label="avanti destra">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+            </button>
+
+            <button class="dir-btn" id="btn-lft" data-dir="spinleft" aria-label="sinistra">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <button class="stop-btn" onclick="sendCmd('stop:0')" aria-label="stop">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+            </button>
+            <button class="dir-btn" id="btn-rgt" data-dir="spinright" aria-label="destra">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
+
+            <button class="dir-btn" id="btn-bwd-l" data-dir="bwd_left" aria-label="indietro sinistra">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/></svg>
+            </button>
+            <button class="dir-btn" id="btn-bwd" data-dir="backward" aria-label="indietro">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+            </button>
+            <button class="dir-btn" id="btn-bwd-r" data-dir="bwd_right" aria-label="indietro destra">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="7" x2="17" y2="17"/><polyline points="7 17 17 17 17 7"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div id="joy-view" style="display: none; height: 200px; justify-content: center; align-items: center;">
+          <div id="joystick-base" style="width: 150px; height: 150px; background: var(--bg3); border: 2px solid var(--line2); border-radius: 50%; position: relative; display: flex; align-items: center; justify-content: center;">
+             <div id="joystick-stick" style="width: 60px; height: 60px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: transform 0.1s; z-index: 10;"></div>
+             <div style="position: absolute; width: 100%; height: 1px; background: var(--line); pointer-events: none;"></div>
+             <div style="position: absolute; height: 100%; width: 1px; background: var(--line); pointer-events: none;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Speed -->
+      <div class="speed-row">
+        <label for="speed-sl">Velocità</label>
+        <input type="range" id="speed-sl" min="50" max="500" step="10" value="200">
+        <span class="speed-val" id="speed-val">200 mm/s</span>
+      </div>
+    </div>
+
+    <!-- Right stack: Motors + Cleaning -->
+    <div class="right-stack">
+
+      <!-- Motors -->
+      <div class="card" style="flex:1;">
+        <div class="card-title">Motori spazzole</div>
+        <div class="motors-col">
+          <button class="toggle-btn" id="t-main" onclick="toggleMotor('main')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z"/><path d="M12 6v6l4 2"/></svg>
+            Spazzola principale
+            <span class="t-dot" id="td-main"></span>
+          </button>
+          <button class="toggle-btn" id="t-side" onclick="toggleMotor('side')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            Spazzola laterale
+            <span class="t-dot" id="td-side"></span>
+          </button>
+          <button class="toggle-btn" id="t-vac" onclick="toggleMotor('vac')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 10 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
+            Aspiratore
+            <span class="t-dot" id="td-vac"></span>
+          </button>
+        </div>
+        <div class="btn-row">
+          <button class="btn-sm" onclick="sendCmd('motors_all:1')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="16" cy="12" r="3" fill="currentColor"/></svg>
+            Tutti ON
+          </button>
+          <button class="btn-sm" onclick="sendCmd('motors_all:0')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="8" cy="12" r="3" fill="currentColor"/></svg>
+            Tutti OFF
+          </button>
+        </div>
+      </div>
+
+      <!-- Cleaning -->
+      <div class="card">
+        <div class="card-title">Pulizia</div>
+        <div class="btn-row">
+          <button class="btn-sm clean-btn" onclick="sendCmd('clean:0')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            Pulisci
+          </button>
+          <button class="btn-sm spot-btn" onclick="sendCmd('spot:0')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+            Spot
+          </button>
+          <button class="btn-sm dock-btn" onclick="sendCmd('dock:0')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+            Base
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LEDs + Songs -->
+  <div class="main-grid">
+
+    <!-- LED panel -->
+    <div class="card">
+      <div class="card-title">LED indicatori</div>
+      <div class="led-grid">
+        <button class="led-btn" id="l-debris" onclick="toggleBatteryLED()">
+          <div class="led-bulb"></div>
+          <span class="led-lbl">Batteria</span>
+        </button>
+        <button class="led-btn" id="l-spot" onclick="toggleLED('spot')">
+          <div class="led-bulb"></div>
+          <span class="led-lbl">Spot</span>
+        </button>
+        <button class="led-btn" id="l-dock" onclick="toggleLED('dock')">
+          <div class="led-bulb"></div>
+          <span class="led-lbl">Dock</span>
+        </button>
+        <button class="led-btn" id="l-check" onclick="toggleLED('check')">
+          <div class="led-bulb"></div>
+          <span class="led-lbl">Check</span>
+        </button>
+      </div>
+      <div class="card-title" style="margin-bottom:10px;">Power LED</div>
+      <div class="pl-row">
+        <label>Colore</label>
+        <input type="range" id="pl-color" min="0" max="255" step="1" value="0" oninput="updatePLPreview()">
+        <div id="pl-swatch"></div>
+      </div>
+      <input type="hidden" id="pl-bright" value="255">
+      <button class="btn-sm" style="width:100%; margin-top:10px; justify-content:center;" onclick="applyPowerLED()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        Applica power LED
+      </button>
+    </div>
+
+    <!-- Song panel -->
+    <div class="card">
+      <div class="card-title">Audio</div>
+      <div class="song-grid">
+        <button class="song-btn" onclick="sendCmd('song:startup')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Avvio
+        </button>
+        <button class="song-btn" onclick="sendCmd('song:happy')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          Felice
+        </button>
+        <button class="song-btn" onclick="sendCmd('song:sad')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          Triste
+        </button>
+        <button class="song-btn" onclick="sendCmd('song:alert')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          Allerta
+        </button>
+        <button class="song-btn" onclick="sendCmd('song:beep')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/></svg>
+          Beep
+        </button>
+      </div>
+      <div class="card-title" style="margin-bottom:10px;">Nota personalizzata</div>
+      <div class="custom-song">
+        <div>
+          <div class="field-label">Note (C4,E4,G4)</div>
+          <input type="text" id="custom-notes" value="C4,E4,G4,C5">
+        </div>
+        <div>
+          <div class="field-label">Durate (16,16,16,32)</div>
+          <input type="text" id="custom-durs" value="16,16,16,32">
+        </div>
+      </div>
+      <button class="btn-sm" style="width:100%; justify-content:center;" onclick="playCustomSong()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        Suona personalizzata
+      </button>
+    </div>
+  </div>
+
+  <!-- Sequence builder -->
+  <div class="card">
+    <div class="card-title">Sequenza di movimento</div>
+    <div class="seq-grid">
+      <button class="preset-btn" onclick="setPreset(0)">▶ Rettilineo</button>
+      <button class="preset-btn" onclick="setPreset(1)">□ Quadrato</button>
+      <button class="preset-btn" onclick="setPreset(2)">↩ U-turn</button>
+    </div>
+    <textarea id="seq-input" aria-label="sequenza di movimento">forward,200,2000;spinright,150,1000;forward,200,1500;stop,0,0</textarea>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <button class="btn-exec" onclick="execSeq()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Esegui sequenza
+      </button>
+      <span style="font-size:11px; font-family:var(--mono); color:var(--muted);">formato: azione,velocità,durata_ms separati da ;</span>
+    </div>
+  </div>
+
+  <!-- Bottom row: Mode + Safety + Log -->
+  <div class="bottom-row">
+    <div class="mode-group">
+      <div class="card-title">Modalità OI</div>
+      <div class="mode-btns">
+        <button class="mode-btn active" id="mode-safe"    onclick="setMode('safe')">Sicuro</button>
+        <button class="mode-btn"        id="mode-full"    onclick="setMode('full')">Completa</button>
+        <button class="mode-btn"        id="mode-passive" onclick="setMode('passive')">Spegni</button>
+      </div>
+    </div>
+    <div class="safety-group">
+      <div class="card-title">Safety auto</div>
+      <button class="safety-toggle on" id="safety-btn" onclick="toggleSafety()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span id="safety-lbl">ON</span>
+      </button>
+    </div>
+    <div class="log-group">
+      <div class="card-title">Log</div>
+      <div id="log"></div>
+    </div>
+  </div>
+
+</div><!-- /shell -->
+
+<script>
+/* ─── State ─────────────────────────────────────────────── */
+let bleDevice = null, cmdCharBLE = null, statusCharBLE = null;
+let serialPort = null, serialReader = null;
+const motorState = { main: false, side: false, vac: false };
+const ledState   = { debris: false, spot: false, dock: false, check: false };
+let safetyOn = true;
+let currentMode = 'safe';
+
+const isConnected = () => (bleDevice && bleDevice.gatt && bleDevice.gatt.connected) || (serialPort && serialPort.readable);
+
+/* ─── Log ───────────────────────────────────────────────── */
+function log(msg, type = '') {
+  const el = document.getElementById('log');
+  const d  = new Date();
+  const ts = d.getHours().toString().padStart(2,'0') + ':' +
+             d.getMinutes().toString().padStart(2,'0') + ':' +
+             d.getSeconds().toString().padStart(2,'0');
+  const entry = document.createElement('div');
+  entry.className = 'entry ' + type;
+  entry.innerHTML = `<span class="ts">${ts}</span><span class="msg">${msg}</span>`;
+  el.appendChild(entry);
+  while (el.children.length > 8) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ─── Clock ─────────────────────────────────────────────── */
+function tick() {
+  const d = new Date();
+  document.getElementById('ts-header').textContent =
+    d.toLocaleDateString('it-IT') + '  ' +
+    d.toLocaleTimeString('it-IT');
+}
+tick();
+setInterval(tick, 1000);
+
+/* ─── BLE ───────────────────────────────────────────────── */
+const SERIAL_SERVICE_UUID = 0xffe0;
+const SERIAL_CHAR_UUID    = 0xffe1;
+
+async function toggleConnect() {
+  if (isConnected()) { disconnect(); return; }
+  if (!checkBLESupport()) return;
+
+  try {
+    log('Avvio scansione BLE (Seleziona il dispositivo)…');
+    
+    // Usiamo acceptAllDevices per la massima compatibilità con i cloni HM-10
+    bleDevice = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [SERIAL_SERVICE_UUID]
+    });
+    
+    bleDevice.addEventListener('gattserverdisconnected', onDisc);
+    log('Connessione al server GATT…');
+    const server = await bleDevice.gatt.connect();
+    
+    log('Ricerca Servizio FFE0…');
+    const svc = await server.getPrimaryService(SERIAL_SERVICE_UUID);
+    
+    log('Ricerca Caratteristica FFE1…');
+    cmdCharBLE = await svc.getCharacteristic(SERIAL_CHAR_UUID);
+    
+    // Verifica supporto notifiche
+    if (cmdCharBLE.properties.notify) {
+      try {
+        await cmdCharBLE.startNotifications();
+        cmdCharBLE.addEventListener('characteristicvaluechanged', onStatus);
+        log('Ricezione dati (Notify) attiva.');
+      } catch (e) {
+        log('Errore avvio notifiche: ' + e.message, 'muted');
+      }
+    } else if (cmdCharBLE.properties.indicate) {
+       // Alcuni moduli usano indicate invece di notify
+       await cmdCharBLE.startNotifications();
+       cmdCharBLE.addEventListener('characteristicvaluechanged', onStatus);
+       log('Ricezione dati (Indicate) attiva.');
+    }
+
+    setConnUI('ble', true, bleDevice.name || 'Dispositivo BLE', bleDevice.id);
+    log('Connesso con successo!', 'out');
+  } catch (e) {
+    log('Errore: ' + e.message, 'err');
+    if (e.message.includes('User cancelled')) return;
+  }
+}
+
+function disconnect() {
+  if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+}
+function onDisc() {
+  setConnUI(null, false);
+  log('Disconnesso.', 'err');
+}
+
+function setConnUI(type, on, name = 'Non connesso', addr = 'in attesa') {
+  document.getElementById('conn-ind').classList.toggle('on', on);
+  document.getElementById('conn-name').textContent = on ? name : 'Non connesso';
+  document.getElementById('conn-addr').textContent = on ? addr : 'in attesa — Bluetooth o USB Serial';
+  
+  const bBLE = document.getElementById('btn-connect');
+  const bUSB = document.getElementById('btn-connect-usb');
+  
+  if (type === 'ble') {
+    bBLE.innerHTML = on ? 'Scollega BLE' : 'Bluetooth';
+    bBLE.classList.toggle('connected', on);
+    bUSB.disabled = on;
+  } else if (type === 'usb') {
+    bUSB.innerHTML = on ? 'Scollega USB' : 'USB Serial';
+    bUSB.classList.toggle('connected', on);
+    bBLE.disabled = on;
+  } else {
+    bBLE.disabled = false; bUSB.disabled = false;
+    bBLE.classList.remove('connected'); bUSB.classList.remove('connected');
+    bBLE.innerHTML = 'Bluetooth'; bUSB.innerHTML = 'USB Serial';
+  }
+}
+
+let serialWriter = null;
+
+async function sendCmd(cmd) {
+  const fullCmd = cmd + '\n';
+  log('→ ' + cmd, 'out');
+  if (!isConnected()) { log('Non connesso.', 'err'); return; }
+  
+  try {
+    if (bleDevice) {
+      const data = new TextEncoder().encode(fullCmd);
+      // HM-10 preferisce writeValueWithoutResponse per performance e compatibilità
+      if (cmdCharBLE.writeValueWithoutResponse) {
+        await cmdCharBLE.writeValueWithoutResponse(data);
+      } else {
+        await cmdCharBLE.writeValue(data);
+      }
+    } else if (serialPort) {
+      if (!serialWriter) {
+        serialWriter = serialPort.writable.getWriter();
+      }
+      await serialWriter.write(new TextEncoder().encode(fullCmd));
+    }
+  } catch (e) {
+    log('TX err: ' + e.message, 'err');
+    if (e.message.includes('locked')) {
+      serialWriter = null; 
+    }
+  }
+}
+
+/* ─── USB Serial ────────────────────────────────────────── */
+async function toggleUSB() {
+  if (serialPort) {
+    log('Scollegamento USB...');
+    await disconnectUSB();
+    return;
+  }
+  
+  if (!navigator.serial) {
+    log('Web Serial non supportato.', 'err');
+    return;
+  }
+
+  try {
+    log('Richiesta porta USB...');
+    serialPort = await navigator.serial.requestPort();
+    
+    // Assicuriamoci che la porta sia chiusa prima di tentare di aprirla
+    // (alcuni browser potrebbero tenerla in uno stato incerto)
+    log('Apertura porta (9600 baud)...');
+    await serialPort.open({ baudRate: 9600 });
+    
+    setConnUI('usb', true, 'Arduino USB', 'Connesso via cavo');
+    log('USB Connessa!', 'out');
+    
+    readSerial();
+  } catch (e) {
+    log('Errore USB: ' + e.message, 'err');
+    await disconnectUSB(); // Pulisci lo stato in caso di fallimento
+  }
+}
+
+async function disconnectUSB() {
+  try {
+    if (serialWriter) {
+      await serialWriter.close();
+      serialWriter = null;
+    }
+    if (serialReader) {
+      await serialReader.cancel();
+      serialReader = null;
+    }
+    if (serialPort) {
+      // Aspetta un istante per permettere al sistema di rilasciare le risorse
+      await serialPort.close();
+    }
+  } catch (e) {
+    console.error('Errore durante il distacco:', e);
+  } finally {
+    serialPort = null;
+    serialWriter = null;
+    setConnUI(null, false);
+    log('USB Scollegata.');
+  }
+}
+
+async function readSerial() {
+  while (serialPort && serialPort.readable) {
+    try {
+      const textDecoder = new TextDecoderStream();
+      const readableStreamClosed = serialPort.readable.pipeTo(textDecoder.writable);
+      serialReader = textDecoder.readable.getReader();
+
+      let buffer = "";
+      while (true) {
+        const { value, done } = await serialReader.read();
+        if (done) break;
+        
+        buffer += value;
+        if (buffer.includes('\n')) {
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // tieni l'ultima riga incompleta
+          lines.forEach(line => {
+            processStatusLine(line);
+          });
+        }
+      }
+    } catch (e) {
+      log('Lettura interrotta: ' + e.message, 'err');
+      break;
+    } finally {
+      if (serialReader) {
+        serialReader.releaseLock();
+        serialReader = null;
+      }
+    }
+  }
+}
+
+/* ─── Status parsing ────────────────────────────────────── */
+let bleBuffer = "";
+const motorLock = { main: 0, side: 0, vac: 0 };
+
+function onStatus(e) {
+  // Buffering per BLE: i pacchetti possono arrivare frammentati
+  const txt = new TextDecoder().decode(e.target.value);
+  bleBuffer += txt;
+  
+  if (bleBuffer.includes('\n')) {
+    const lines = bleBuffer.split('\n');
+    bleBuffer = lines.pop(); // tieni l'ultima riga incompleta
+    lines.forEach(line => processStatusLine(line));
+  }
+}
+
+function processStatusLine(line) {
+  const txt = line.trim();
+  if (!txt) return;
+  const p = txt.split(':');
+  if (p.length < 13) return;
+
+  const volt   = parseInt(p[0]);
+  const curr   = parseInt(p[1]);
+  const bat    = parseInt(p[2]);
+  const bumL   = p[4] === '1', bumR = p[5] === '1';
+  const wall   = p[6] === '1', cliff = p[7] === '1';
+  const batLow = p[8] === '1', batCrit = p[9] === '1';
+  const mMain  = p[10] === '1', mSide = p[11] === '1', mVac = p[12] === '1';
+
+  const batEl = document.getElementById('m-bat');
+  batEl.textContent = bat + '%';
+  batEl.className = 'metric-val ' + (batCrit ? 'crit' : batLow ? 'warn' : bat > 60 ? 'ok' : '');
+
+  document.getElementById('m-volt').textContent  = (volt / 1000).toFixed(2) + ' V';
+  document.getElementById('m-curr').textContent  = curr + ' mA';
+  document.getElementById('m-state').textContent = batCrit ? 'CRITICA' : batLow ? 'BASSA' : 'OK';
+  document.getElementById('m-state').className   = 'metric-val ' + (batCrit ? 'crit' : batLow ? 'warn' : 'ok');
+
+  setSensor('bumperL', bumL);
+  setSensor('bumperR', bumR);
+  setSensor('wall',    wall);
+  setSensor('cliff',   cliff);
+
+  // Applichiamo lo stato dei motori solo se non abbiamo appena inviato un comando (lock)
+  // Questo evita che la UI "salti" indietro se arriva un pacchetto di stato vecchio
+  const now = Date.now();
+  if (now > motorLock.main) syncMotorUI('main', mMain);
+  if (now > motorLock.side) syncMotorUI('side', mSide);
+  if (now > motorLock.vac)  syncMotorUI('vac',  mVac);
+}
+
+function setSensor(key, active) {
+  document.getElementById('sd-' + key).classList.toggle('active', active);
+  document.getElementById('sx-' + key).classList.toggle('active', active);
+}
+
+/* ─── D-pad hold ────────────────────────────────────────── */
+document.querySelectorAll('[data-dir]').forEach(btn => {
+  const start = e => {
+    e.preventDefault();
+    btn.classList.add('pressed');
+    const spd = document.getElementById('speed-sl').value;
+    sendCmd(btn.dataset.dir + ':' + spd);
+  };
+  const end = e => {
+    e.preventDefault();
+    if (!btn.classList.contains('pressed')) return;
+    btn.classList.remove('pressed');
+    sendCmd('stop:0');
+  };
+  btn.addEventListener('mousedown',  start);
+  btn.addEventListener('mouseup',    end);
+  btn.addEventListener('mouseleave', end);
+  btn.addEventListener('touchstart', start, { passive: false });
+  btn.addEventListener('touchend',   end,   { passive: false });
+  btn.addEventListener('touchcancel',end,   { passive: false });
+});
+
+document.getElementById('speed-sl').addEventListener('input', function () {
+  document.getElementById('speed-val').textContent = this.value + ' mm/s';
+});
+
+/* ─── Motors ────────────────────────────────────────────── */
+function toggleMotor(which) {
+  motorState[which] = !motorState[which];
+  syncMotorUI(which, motorState[which]);
+  // Blocchiamo l'aggiornamento automatico per questo motore per 1.5 secondi
+  motorLock[which] = Date.now() + 1500;
+  sendCmd('motor_' + which + ':' + (motorState[which] ? '1' : '0'));
+}
+function syncMotorUI(which, on) {
+  motorState[which] = on;
+  document.getElementById('t-' + which).classList.toggle('on', on);
+}
+
+/* ─── LEDs ──────────────────────────────────────────────── */
+function toggleLED(which) {
+  ledState[which] = !ledState[which];
+  document.getElementById('l-' + which).classList.toggle('on', ledState[which]);
+  syncLEDsToRobot();
+}
+
+function toggleBatteryLED() {
+  const brightInput = document.getElementById('pl-bright');
+  const btn = document.getElementById('l-debris');
+  
+  if (ledState.debris) {
+    brightInput.value = 0;
+    btn.classList.remove('on');
+    ledState.debris = false;
+  } else {
+    brightInput.value = 255;
+    btn.classList.add('on');
+    ledState.debris = true;
+  }
+  applyPowerLED();
+}
+
+function syncLEDsToRobot() {
+  const v = [ledState.debris, ledState.spot, ledState.dock, ledState.check].map(x => x ? 1 : 0).join(',');
+  sendCmd('led:' + v);
+}
+
+function updatePLPreview() {
+  const c = parseInt(document.getElementById('pl-color').value);
+  const hue = Math.round(120 - (c / 255) * 120);
+  document.getElementById('pl-swatch').style.background = 'hsl(' + hue + ',80%,52%)';
+}
+
+function applyPowerLED() {
+  const c = document.getElementById('pl-color').value;
+  const b = document.getElementById('pl-bright').value;
+  
+  // Spegni gli altri LED tranne Batteria (debris) nell'interfaccia
+  ['spot', 'dock', 'check'].forEach(id => {
+    ledState[id] = false;
+    const el = document.getElementById('l-' + id);
+    if (el) el.classList.remove('on');
+  });
+  
+  // Prima sincronizziamo i LED di stato (Spot, Dock, Check, Batteria/Debris)
+  syncLEDsToRobot();
+  
+  // Poi applichiamo il colore del Power LED. 
+  // Inviarlo DOPO syncLEDs aiuta a sovrascrivere eventuali reset del firmware.
+  setTimeout(() => {
+    sendCmd('powerled:' + c + ',' + b);
+  }, 50); 
+}
+
+
+
+/* ─── Songs ─────────────────────────────────────────────── */
+function playCustomSong() {
+  const notes = document.getElementById('custom-notes').value.trim().split(',');
+  const durs  = document.getElementById('custom-durs').value.trim().split(',');
+  const len   = Math.min(notes.length, durs.length, 16);
+  const pairs = [];
+  for (let i = 0; i < len; i++) pairs.push(notes[i].trim() + ',' + durs[i].trim());
+  sendCmd('song:custom,' + pairs.join(','));
+}
+
+/* ─── Sequences ─────────────────────────────────────────── */
+const PRESETS = [
+  'forward,200,2000;spinright,150,1000;forward,200,1500;stop,0,0',
+  'forward,150,1000;right,150,500;forward,150,1000;right,150,500;forward,150,1000;right,150,500;forward,150,1000;stop,0,0',
+  'forward,200,3000;spinright,200,1800;forward,200,3000;stop,0,0'
+];
+function setPreset(i) {
+  document.getElementById('seq-input').value = PRESETS[i];
+}
+function execSeq() {
+  const v = document.getElementById('seq-input').value.trim();
+  if (v) sendCmd('seq:' + v);
+}
+
+/* ─── Mode ──────────────────────────────────────────────── */
+function setMode(m) {
+  currentMode = m;
+  ['safe', 'full', 'passive'].forEach(x => {
+    document.getElementById('mode-' + x).classList.toggle('active', x === m);
+  });
+  sendCmd('mode:' + m);
+}
+
+/* ─── Move Mode Selector ────────────────────────────────── */
+function setMoveMode(mode) {
+  document.getElementById('dpad-view').style.display = (mode === 'dpad' ? 'block' : 'none');
+  document.getElementById('joy-view').style.display = (mode === 'joy' ? 'flex' : 'none');
+  
+  document.getElementById('m-mode-dpad').classList.toggle('active', mode === 'dpad');
+  document.getElementById('m-mode-joy').classList.toggle('active', mode === 'joy');
+  
+  if (mode === 'dpad') sendCmd('stop:0');
+}
+
+/* ─── Joystick Logic ────────────────────────────────────── */
+const joyBase = document.getElementById('joystick-base');
+const joyStick = document.getElementById('joystick-stick');
+let joyActive = false;
+let lastJoyCmd = "";
+
+function handleJoyMove(e) {
+  if (!joyActive) return;
+  
+  const rect = joyBase.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  
+  let clientX = e.clientX || (e.touches ? e.touches[0].clientX : 0);
+  let clientY = e.clientY || (e.touches ? e.touches[0].clientY : 0);
+  
+  let dx = clientX - centerX;
+  let dy = clientY - centerY;
+  
+  const distance = Math.sqrt(dx*dx + dy*dy);
+  const maxDistance = rect.width / 2 - 30;
+  
+  if (distance > maxDistance) {
+    dx *= maxDistance / distance;
+    dy *= maxDistance / distance;
+  }
+  
+  joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
+  
+  const speed = parseInt(document.getElementById('speed-sl').value);
+  const normX = dx / maxDistance; 
+  const normY = dy / maxDistance; 
+  
+  processJoyInput(normX, -normY, speed);
+}
+
+function processJoyInput(x, y, maxSpd) {
+  let cmd = "stop";
+  let val = 0;
+
+  if (Math.sqrt(x*x + y*y) < 0.2) {
+    cmd = "stop";
+    val = 0;
+  } else {
+    val = maxSpd;
+    const angle = Math.atan2(y, x) * 180 / Math.PI; // -180 a 180 (0 è destra, 90 è su/avanti)
+    
+    // Mappa l'angolo in 8 direzioni
+    if      (angle > 67.5   && angle <= 112.5)  cmd = "forward";
+    else if (angle > 22.5   && angle <= 67.5)   cmd = "fwd_right";
+    else if (angle > -22.5  && angle <= 22.5)   cmd = "spinright";
+    else if (angle > -67.5  && angle <= -22.5)  cmd = "bwd_right";
+    else if (angle > -112.5 && angle <= -67.5)  cmd = "backward";
+    else if (angle > -157.5 && angle <= -112.5) cmd = "bwd_left";
+    else if (angle > 157.5  || angle <= -157.5) cmd = "spinleft";
+    else if (angle > 112.5  && angle <= 157.5)  cmd = "fwd_left";
+  }
+  
+  const fullCmd = cmd + ":" + val;
+  if (fullCmd !== lastJoyCmd) {
+    sendCmd(fullCmd);
+    lastJoyCmd = fullCmd;
+  }
+}
+
+joyStick.addEventListener('mousedown', () => { joyActive = true; });
+window.addEventListener('mousemove', handleJoyMove);
+window.addEventListener('mouseup', () => { 
+  if (!joyActive) return;
+  joyActive = false; 
+  joyStick.style.transform = 'translate(0,0)';
+  processJoyInput(0, 0, 0);
+});
+
+joyStick.addEventListener('touchstart', (e) => { e.preventDefault(); joyActive = true; }, {passive: false});
+window.addEventListener('touchmove', handleJoyMove, {passive: false});
+window.addEventListener('touchend', () => { 
+  if (!joyActive) return;
+  joyActive = false; 
+  joyStick.style.transform = 'translate(0,0)';
+  processJoyInput(0, 0, 0);
+}, {passive: false});
+
+
+/* ─── Keyboard Control ──────────────────────────────────── */
+const keyMap = {
+  'w': 'forward', 'a': 'spinleft', 's': 'backward', 'd': 'spinright',
+  'W': 'forward', 'A': 'spinleft', 'S': 'backward', 'D': 'spinright',
+  ' ': 'stop', 'ArrowUp': 'forward', 'ArrowDown': 'backward', 
+  'ArrowLeft': 'spinleft', 'ArrowRight': 'spinright'
+};
+let activeKeys = new Set();
+
+window.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  if (keyMap[e.key]) {
+    activeKeys.add(e.key);
+    updateKeyboardMovement();
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (keyMap[e.key]) {
+    activeKeys.delete(e.key);
+    updateKeyboardMovement();
+  }
+});
+
+function updateKeyboardMovement() {
+  const speed = parseInt(document.getElementById('speed-sl').value);
+  if (activeKeys.size === 0) {
+    sendCmd('stop:0');
+    return;
+  }
+  
+  // Logica semplice: prendi l'ultimo tasto premuto o gestisci combinazioni
+  let cmd = "";
+  if (activeKeys.has('w') || activeKeys.has('W') || activeKeys.has('ArrowUp')) {
+    if (activeKeys.has('a') || activeKeys.has('A') || activeKeys.has('ArrowLeft')) cmd = "fwd_left";
+    else if (activeKeys.has('d') || activeKeys.has('D') || activeKeys.has('ArrowRight')) cmd = "fwd_right";
+    else cmd = "forward";
+  } else if (activeKeys.has('s') || activeKeys.has('S') || activeKeys.has('ArrowDown')) {
+    if (activeKeys.has('a') || activeKeys.has('A') || activeKeys.has('ArrowLeft')) cmd = "bwd_left";
+    else if (activeKeys.has('d') || activeKeys.has('D') || activeKeys.has('ArrowRight')) cmd = "bwd_right";
+    else cmd = "backward";
+  } else if (activeKeys.has('a') || activeKeys.has('A') || activeKeys.has('ArrowLeft')) {
+    cmd = "spinleft";
+  } else if (activeKeys.has('d') || activeKeys.has('D') || activeKeys.has('ArrowRight')) {
+    cmd = "spinright";
+  } else if (activeKeys.has(' ')) {
+    cmd = "stop";
+  }
+
+  if (cmd) sendCmd(cmd + ":" + speed);
+}
+
+/* ─── Safety ────────────────────────────────────────────── */
+function toggleSafety() {
+  safetyOn = !safetyOn;
+  const b = document.getElementById('safety-btn');
+  b.classList.toggle('on', safetyOn);
+  document.getElementById('safety-lbl').textContent = safetyOn ? 'ON' : 'OFF';
+  sendCmd('safety:' + (safetyOn ? '1' : '0'));
+}
+
+/* ─── Boot ──────────────────────────────────────────────── */
+function checkBLESupport() {
+  const notice = document.getElementById('ble-notice');
+  const reason = document.getElementById('ble-reason');
+
+  if (!navigator.bluetooth) {
+    notice.style.display = 'block';
+    if (reason) reason.textContent = "Web Bluetooth API non trovata.";
+    log('Web Bluetooth non supportato o disabilitato.', 'err');
+    return false;
+  }
+
+  if (!window.isSecureContext) {
+    notice.style.display = 'block';
+    if (reason) reason.textContent = "Web Bluetooth richiede HTTPS o localhost.";
+    log('Contesto non sicuro (necessita HTTPS).', 'err');
+    return false;
+  }
+
+  return true;
+}
+
+checkBLESupport();
+log('Pronto. Premi Connetti per iniziare.');
+</script>
+</body>
+</html>
