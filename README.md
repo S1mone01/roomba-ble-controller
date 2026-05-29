@@ -3,7 +3,7 @@
 Un sistema di controllo avanzato per irobot Roomba basato su **Arduino Nano** e modulo **Bluetooth Low Energy (BLE) CC2540**. Il progetto include uno sketch Arduino ottimizzato e una moderna interfaccia web di controllo.
 
 ![Interfaccia di Controllo](screenshot.png)
-*Esempio dell'interfaccia web ArduRoomba (Cattura uno screenshot di `arduroomba-controller.html` e salvalo come `screenshot.png` per vederlo qui).*
+
 
 ## 🚀 Caratteristiche
 
